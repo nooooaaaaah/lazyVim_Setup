@@ -55,14 +55,20 @@ function Kanban.draw_columns(board_width, kanban_data)
 		return text .. string.rep(" ", padding - #text)
 	end
 
+	local function add_header(text, padding)
+		padding = padding or column_width
+		return string.rep(" ", padding - #text) .. text .. string.rep(" ", padding - #text)
+	end
+
 	-- Draw headers
 	local header_line = ""
 	for _, col in ipairs(kanban_data.cols) do
 		local header = col.title
 		local header_padding = math.floor((column_width - #header) / 2)
-		header_line = header_line .. add_line(header, column_width - header_padding)
+		header_line = header_line .. add_header(header, column_width - header_padding)
 	end
 	table.insert(lines, header_line)
+	table.insert(lines, string.rep("─", board_width))
 
 	-- Initialize the task lines for each column
 	local task_lines = {}
@@ -72,19 +78,25 @@ function Kanban.draw_columns(board_width, kanban_data)
 
 	-- Fill task lines for each column
 	for col_index, col in ipairs(kanban_data.cols) do
-		for task_index, task in ipairs(col.tasks or {}) do
+		local task_line_count = 0
+		for _, task in ipairs(col.tasks or {}) do
 			local wrapped_text = Kanban.wrap_text(task.text, column_width)
-			for line_index, text in ipairs(wrapped_text) do
-				task_lines[col_index][task_index + line_index - 1] = add_line(text)
+			for _, text in ipairs(wrapped_text) do
+				table.insert(task_lines[col_index], add_line(text))
 			end
+			task_line_count = task_line_count + #wrapped_text
+		end
+		-- Fill the remaining space in the column with empty lines
+		for i = task_line_count + 1, 10 do
+			table.insert(task_lines[col_index], add_line(""))
 		end
 	end
 
 	-- Add task lines to main lines table, ensuring each column is aligned
-	for i = 1, 10 do -- Adjust the 10 to the maximum number of lines you want to handle
+	for line_index = 1, 10 do
 		local line = ""
 		for col_index = 1, #kanban_data.cols do
-			line = line .. (task_lines[col_index][i] or add_line(""))
+			line = line .. task_lines[col_index][line_index]
 		end
 		table.insert(lines, line)
 	end
@@ -117,6 +129,12 @@ function Kanban.setup_buffer(lines)
 
 	vim.api.nvim_buf_set_option(Kanban.buf_id, "modifiable", true)
 	vim.api.nvim_buf_set_lines(Kanban.buf_id, 0, -1, false, lines)
+	-- Apply header highlighting
+	vim.api.nvim_buf_add_highlight(Kanban.buf_id, -1, "KanbanHeader", 0, 0, -1)
+	-- Apply task highlighting (example: tasks start from line 2)
+	for i = 2, #lines do
+		vim.api.nvim_buf_add_highlight(Kanban.buf_id, -1, "KanbanTask", i - 1, 0, -1)
+	end
 	vim.api.nvim_buf_set_option(Kanban.buf_id, "modifiable", false)
 end
 
@@ -145,7 +163,7 @@ end
 
 function Kanban.setup()
 	vim.api.nvim_create_user_command("Kanban", Kanban.toggle_board, {})
-	-- vim.api.nvim_set_keymap("n", "<leader>kb", ":Kanban<CR>", { noremap = true, silent = true })
+	vim.api.nvim_set_keymap("n", "<leader>kb", ":Kanban<CR>", { noremap = true, silent = true })
 
 	vim.cmd([[
     augroup Kanban
@@ -153,6 +171,14 @@ function Kanban.setup()
       autocmd VimResized * lua require("plugins.kanban").update_dimensions()
     augroup end
   ]])
+
+	vim.cmd([[
+    augroup KanbanHighlight
+        autocmd!
+        autocmd ColorScheme * highlight KanbanHeader ctermfg=Green guifg=Green gui=bold cterm=bold
+        autocmd ColorScheme * highlight KanbanTask ctermfg=Yellow guifg=Yellow
+    augroup end
+]])
 end
 
 return {
